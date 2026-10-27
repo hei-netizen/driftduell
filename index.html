@@ -60,9 +60,9 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
 <body>
 <div class="wrap">
   <header>
-    <div class="score s1"><b id="sc1">♥♥♥</b><small>Rød · <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></small></div>
+    <div class="score s1"><b id="sc1">0</b><small>Rød seire · <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></small></div>
     <h1>Driftduell</h1>
-    <div class="score s2"><b id="sc2">♥♥♥</b><small><kbd>←</kbd> <kbd>↓</kbd> <kbd>→</kbd> · Blå</small></div>
+    <div class="score s2"><b id="sc2">0</b><small><kbd>←</kbd> <kbd>↓</kbd> <kbd>→</kbd> · Blå seire</small></div>
   </header>
   <div class="progress" aria-hidden="true">
     <div class="track"><span class="dot d1" id="d1"></span><span class="dot d2" id="d2"></span></div>
@@ -72,7 +72,7 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
     <div class="callout" id="callout"></div>
     <div class="overlay" id="menu">
       <h2 id="title">Driftduell</h2>
-      <p id="msg">Kjør gjennom landskapet og kom først i mål! Bilene kjører fremover av seg selv, og du drifter gjennom svingene. Begge har 3 liv. Du mister et liv hvis du kjører av veien eller blir hengende for langt etter.</p>
+      <p id="msg">Kjør gjennom landskapet og kom først i mål! Bilene kjører fremover av seg selv, og du drifter gjennom svingene. Kjører du ut i gresset, går det mye saktere, og trær og steiner er i veien.</p>
       <div class="keys">
         <div class="key k1">Rød: sving <kbd>A</kbd> <kbd>D</kbd>, rygg <kbd>S</kbd><br><span class="small">mobil: venstre halvdel, to fingre = rygg</span></div>
         <div class="key k2">Blå: sving <kbd>←</kbd> <kbd>→</kbd>, rygg <kbd>↓</kbd><br><span class="small">mobil: høyre halvdel, to fingre = rygg</span></div>
@@ -91,8 +91,7 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
   const callout = document.getElementById('callout');
   const css = getComputedStyle(document.documentElement);
   const tok = (n) => css.getPropertyValue(n).trim();
-  const LIVES = 3, HW = 3.4, CAR_R = 0.9;
-  const heartText = (n) => '♥'.repeat(Math.max(0, n)) + '♡'.repeat(LIVES - Math.max(0, n));
+  const HW = 3.4, CAR_R = 0.9;
   const rnd = (a, b) => a + Math.random() * (b - a);
 
   // --- scene ---
@@ -110,8 +109,8 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
   scene.add(new THREE.HemisphereLight(0xfffbe8, 0x4d6b3a, 0.7));
   const sun = new THREE.DirectionalLight(0xffffff, 0.8);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
-  Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 120 });
+  sun.shadow.mapSize.set(2048, 2048);
+  Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 140 });
   scene.add(sun, sun.target);
 
   const roadTop = new THREE.MeshLambertMaterial({ color: 0x6b6f78 });
@@ -148,8 +147,8 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
     for (let i = 0; i < SKIDS; i++) skidMesh.setMatrixAt(i, tmpM);
     skidMesh.instanceMatrix.needsUpdate = true;
   }
-  function addSkid(x, z) {
-    tmpM.makeTranslation(x, 0.52, z);
+  function addSkid(x, z, road) {
+    tmpM.makeTranslation(x, road ? 0.52 : 0.04, z);
     skidMesh.setMatrixAt(skidI, tmpM);
     skidI = (skidI + 1) % SKIDS;
     skidMesh.instanceMatrix.needsUpdate = true;
@@ -175,13 +174,13 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
   }
 
   const cars = [
-    { name: 'Rød', mesh: buildCar(tok('--p1')), el: document.getElementById('sc1'), dot: document.getElementById('d1'), lk: ['a', 'A'], rk: ['d', 'D'], bk: ['s', 'S'], hearts: LIVES },
-    { name: 'Blå', mesh: buildCar(tok('--p2')), el: document.getElementById('sc2'), dot: document.getElementById('d2'), lk: ['ArrowLeft'], rk: ['ArrowRight'], bk: ['ArrowDown'], hearts: LIVES },
+    { name: 'Rød', mesh: buildCar(tok('--p1')), el: document.getElementById('sc1'), dot: document.getElementById('d1'), lk: ['a', 'A'], rk: ['d', 'D'], bk: ['s', 'S'], wins: 0 },
+    { name: 'Blå', mesh: buildCar(tok('--p2')), el: document.getElementById('sc2'), dot: document.getElementById('d2'), lk: ['ArrowLeft'], rk: ['ArrowRight'], bk: ['ArrowDown'], wins: 0 },
   ];
 
   // --- bane og landskap ---
   const N = { x: 0, z: -1 }, E = { x: 1, z: 0 }, Wd = { x: -1, z: 0 };
-  let segs = [], decor = [], cum = [], total = 0, head;
+  let segs = [], decor = [], cum = [], total = 0, head, obstacles = [];
 
   function addSeg(len, dir) {
     const p = { ...head };
@@ -201,7 +200,7 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
   function buildTrack() {
     segs.forEach((s) => scene.remove(s.mesh));
     decor.forEach((m) => scene.remove(m));
-    segs = []; decor = [];
+    segs = []; decor = []; obstacles = [];
 
     head = { x: 0, z: 14 };
     addSeg(34, N);
@@ -272,8 +271,10 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
     trees.forEach((s, i) => {
       dummy.position.set(s.x, 0, s.z);
       dummy.rotation.set(0, Math.random() * 6, 0);
-      dummy.scale.setScalar(rnd(0.7, 1.6));
+      const sc = rnd(0.7, 1.6);
+      dummy.scale.setScalar(sc);
       dummy.updateMatrix();
+      obstacles.push({ x: s.x, z: s.z, r: 0.45 * sc });
       trunks.setMatrixAt(i, dummy.matrix);
       leaves.setMatrixAt(i, dummy.matrix);
       leaves.setColorAt(i, greens[i % greens.length]);
@@ -283,16 +284,18 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
     rocks.forEach((s, i) => {
       dummy.position.set(s.x, 0.3, s.z);
       dummy.rotation.set(Math.random(), Math.random(), Math.random());
-      dummy.scale.set(rnd(0.6, 1.4), rnd(0.5, 0.9), rnd(0.6, 1.4));
+      const sx = rnd(0.6, 1.4), sz = rnd(0.6, 1.4);
+      dummy.scale.set(sx, rnd(0.5, 0.9), sz);
       dummy.updateMatrix();
+      obstacles.push({ x: s.x, z: s.z, r: 0.7 * Math.max(sx, sz) });
       rockMesh.setMatrixAt(i, dummy.matrix);
     });
     rockMesh.count = rocks.length;
     rockMesh.castShadow = true;
   }
 
-  function segAt(x, z, from) {
-    for (let i = Math.min(segs.length - 1, from + 3); i >= Math.max(0, from - 3); i--) {
+  function segAt(x, z) {
+    for (let i = segs.length - 1; i >= 0; i--) {
       const s = segs[i];
       if (x >= s.x0 && x <= s.x1 && z >= s.z0 && z <= s.z1) return i;
     }
@@ -301,21 +304,21 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
   const alongOf = (c, i) => (c.x - segs[i].p.x) * segs[i].dir.x + (c.z - segs[i].p.z) * segs[i].dir.z;
 
   // --- spilltilstand ---
-  let state = 'menu', timer = 0, speedT = 0, msgT = 0, winner = null, endT = 0;
+  let state = 'menu', timer = 0, speedT = 0, msgT = 0, winner = null, endT = 0, view = 17;
   const camTarget = new THREE.Vector3();
 
   function say(text, secs) { callout.textContent = text; msgT = secs; }
 
   function placeAtStart() {
     cars.forEach((c, i) => {
-      Object.assign(c, { x: i ? 1.6 : -1.6, y: 0, z: 8, vx: 0, vz: 0, a: -Math.PI / 2, l: false, r: false, b: false, tl: false, tr: false, dead: false, crash: 0, ghost: 0, seg: 0, prog: 0, hearts: LIVES, reason: null });
-      c.el.textContent = heartText(LIVES);
+      Object.assign(c, { x: i ? 1.6 : -1.6, y: 0, z: 8, vx: 0, vz: 0, a: -Math.PI / 2, l: false, r: false, b: false, tl: false, tr: false, ghost: 0, seg: 0, prog: 0, ry: 0.5 });
       c.dot.style.left = '0%';
       c.mesh.visible = true;
       c.mesh.position.set(c.x, 0.5, c.z);
       c.mesh.rotation.set(0, -c.a, 0);
     });
     camTarget.set(0, 0.5, 4);
+    view = 17;
   }
 
   function startRace() {
@@ -334,32 +337,17 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
     const other = cars.find((o) => o !== c);
     if (Math.hypot(other.x - x, other.z - z) < 2.5) { x -= s.dir.z * 1.8; z += s.dir.x * 1.8; }
     c.a = Math.atan2(s.dir.z, s.dir.x);
-    Object.assign(c, { x, z, vx: Math.cos(c.a) * 8, vz: Math.sin(c.a) * 8, crash: 0, ghost: 1.5, seg: segIdx });
+    Object.assign(c, { x, z, vx: Math.cos(c.a) * 8, vz: Math.sin(c.a) * 8, ghost: 1.5, seg: segIdx, ry: 0.5 });
     c.mesh.rotation.set(0, -c.a, 0);
-  }
-
-  function hit(c, text) {
-    c.hearts--;
-    c.el.textContent = heartText(c.hearts);
-    if (c.hearts <= 0) {
-      c.dead = true;
-      say(c.name + ' er tom for liv!', 2);
-      const alive = cars.filter((o) => !o.dead);
-      if (!winner && alive.length === 1) { winner = alive[0]; winner.reason = 'last'; }
-      endT = 1.6;
-    } else {
-      say(c.name + ' ' + text + '!', 1.2);
-    }
   }
 
   function finishRace() {
     state = 'over';
     callout.textContent = '';
-    const msg = document.getElementById('msg');
-    document.getElementById('title').textContent = winner ? winner.name + ' vinner!' : 'Uavgjort!';
-    if (!winner) msg.textContent = 'Begge gikk tom for liv. Klar for en ny bane?';
-    else if (winner.reason === 'last') msg.textContent = winner.name + ' var den eneste som hadde liv igjen. Klar for en ny bane?';
-    else msg.textContent = winner.name + ' kom først i mål med ' + winner.hearts + ' liv igjen. Klar for en ny bane?';
+    winner.wins++;
+    winner.el.textContent = winner.wins;
+    document.getElementById('title').textContent = winner.name + ' vinner!';
+    document.getElementById('msg').textContent = winner.name + ' kom først i mål. Stillingen er Rød ' + cars[0].wins + ' – ' + cars[1].wins + ' Blå. Klar for en ny bane?';
     document.getElementById('go').textContent = 'Ny bane';
     menu.hidden = false;
     document.getElementById('go').focus();
@@ -369,17 +357,6 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
     speedT += dt;
     const maxV = Math.min(24, 12 + speedT * 0.25);
     for (const c of cars) {
-      if (c.dead) { c.mesh.visible = false; continue; }
-      if (c.crash > 0) {
-        c.crash -= dt;
-        const k = Math.exp(-2.5 * dt);
-        c.vx *= k; c.vz *= k;
-        c.x += c.vx * dt; c.z += c.vz * dt;
-        c.mesh.position.set(c.x, 0.05, c.z);
-        c.mesh.rotation.y += 9 * dt;
-        if (c.crash <= 0 && !c.dead) respawn(c, c.seg, alongOf(c, c.seg));
-        continue;
-      }
       c.ghost = Math.max(0, c.ghost - dt);
       c.mesh.visible = c.ghost > 0 ? Math.floor(t / 90) % 2 === 0 : true;
 
@@ -389,79 +366,95 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
       const left = c.l || (c.tl && !touchBack), right = c.r || (c.tr && !touchBack);
       const turn = (right ? 1 : 0) - (left ? 1 : 0);
 
+      const seg = segAt(c.x, c.z);
+      const road = seg >= 0;
+      if (road) c.seg = seg;
+      const cap = road ? maxV : maxV * 0.38;
+
       const fx = Math.cos(c.a), fz = Math.sin(c.a);
       let fwd = c.vx * fx + c.vz * fz;
-      let lat = -c.vx * fz + c.vz * fx;
-      // krappere svinger: høy svingfart, litt lavere i full fart
       const steer = 3.6 + Math.min(Math.abs(fwd), 14) * 0.05;
       c.a += turn * steer * dt * (fwd < -0.5 ? -1 : 1);
 
       const nfx = Math.cos(c.a), nfz = Math.sin(c.a);
       fwd = c.vx * nfx + c.vz * nfz;
-      lat = -c.vx * nfz + c.vz * nfx;
+      let lat = -c.vx * nfz + c.vz * nfx;
       if (back) fwd -= (fwd > 0 ? 45 : 22) * dt;
-      else fwd += 32 * dt;
-      fwd = Math.max(-9, Math.min(fwd, maxV));
+      else fwd += (road ? 32 : 20) * dt;
+      // i gresset bremses bilen mykt ned til lav fart
+      if (fwd > cap) fwd -= (fwd - cap) * Math.min(1, dt * (road ? 20 : 3.5));
+      fwd = Math.max(road ? -9 : -5, fwd);
       lat *= Math.exp(-(turn ? 2.2 : 5) * dt);
       c.vx = nfx * fwd - nfz * lat; c.vz = nfz * fwd + nfx * lat;
       c.x += c.vx * dt; c.z += c.vz * dt;
 
+      // trær og steiner
+      for (const o of obstacles) {
+        const dx = c.x - o.x, dz = c.z - o.z;
+        if (Math.abs(dx) > 3 || Math.abs(dz) > 3) continue;
+        const d = Math.hypot(dx, dz), min = o.r + 0.7;
+        if (d > 0 && d < min) {
+          const nx = dx / d, nz = dz / d;
+          c.x = o.x + nx * min; c.z = o.z + nz * min;
+          const vn = c.vx * nx + c.vz * nz;
+          if (vn < 0) { c.vx -= nx * vn * 1.3; c.vz -= nz * vn * 1.3; }
+          c.vx *= 0.7; c.vz *= 0.7;
+        }
+      }
+
       if (Math.abs(lat) > 3.5 || (back && fwd > 4)) {
         const bx = -nfx * 0.7, bz = -nfz * 0.7, sx = -nfz * 0.55, sz = nfx * 0.55;
-        addSkid(c.x + bx + sx, c.z + bz + sz);
-        addSkid(c.x + bx - sx, c.z + bz - sz);
+        addSkid(c.x + bx + sx, c.z + bz + sz, road);
+        addSkid(c.x + bx - sx, c.z + bz - sz, road);
       }
 
-      const s = segAt(c.x, c.z, c.seg);
-      if (s < 0) {
-        c.crash = 0.9;
-        hit(c, 'kjørte av veien');
-        continue;
-      }
-      c.seg = s;
+      c.ry += ((road ? 0.5 : 0) - c.ry) * Math.min(1, dt * 14);
       const along = alongOf(c, c.seg);
-      c.prog = cum[c.seg] + Math.max(0, along);
+      c.prog = cum[c.seg] + Math.max(0, Math.min(segs[c.seg].len, along));
 
-      if (c.seg === segs.length - 1 && along >= segs[c.seg].len - 2 && !winner) {
-        winner = c; winner.reason = 'goal';
+      if (road && c.seg === segs.length - 1 && along >= segs[c.seg].len - 2 && !winner) {
+        winner = c;
         say(c.name + ' er i mål!', 2);
         endT = 1.4;
       }
     }
 
-    // biler dytter hverandre, og den som blir hengende etter mister et liv
+    // biler dytter hverandre
     const [a, b] = cars;
-    const active = (c) => !c.dead && c.crash <= 0;
-    if (active(a) && active(b)) {
-      const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
-      if (d > 0 && d < CAR_R * 2) {
-        const nx = dx / d, nz = dz / d, push = (CAR_R * 2 - d) / 2;
-        a.x -= nx * push; a.z -= nz * push; b.x += nx * push; b.z += nz * push;
-        const rel = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
-        if (rel < 0) { a.vx += nx * rel; a.vz += nz * rel; b.vx -= nx * rel; b.vz -= nz * rel; }
-      }
-      if (d > 32 && a.ghost <= 0 && b.ghost <= 0 && !winner) {
-        const [behind, lead] = a.prog < b.prog ? [a, b] : [b, a];
-        hit(behind, 'ble hengende etter');
-        if (!behind.dead) respawn(behind, lead.seg, alongOf(lead, lead.seg) - 4);
-      }
+    const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
+    if (d > 0 && d < CAR_R * 2) {
+      const nx = dx / d, nz = dz / d, push = (CAR_R * 2 - d) / 2;
+      a.x -= nx * push; a.z -= nz * push; b.x += nx * push; b.z += nz * push;
+      const rel = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
+      if (rel < 0) { a.vx += nx * rel; a.vz += nz * rel; b.vx -= nx * rel; b.vz -= nz * rel; }
     }
-    if (!winner && cars.every((c) => c.dead)) endT = endT || 1.4;
+    // kommer noen helt ut av bildet, flyttes de frem til den andre (ingen straff)
+    if (d > 48 && !winner) {
+      const [behind, lead] = a.prog < b.prog ? [a, b] : [b, a];
+      respawn(behind, lead.seg, alongOf(lead, lead.seg) - 4);
+      say(behind.name + ' ble flyttet frem', 1.2);
+    }
 
     for (const c of cars) {
-      if (c.crash > 0 || c.dead) continue;
-      c.mesh.position.set(c.x, 0.5, c.z);
+      c.mesh.position.set(c.x, c.ry, c.z);
       c.mesh.rotation.y = -c.a;
+      c.dot.style.left = Math.min(100, (c.prog / (total - 2)) * 100) + '%';
     }
-    for (const c of cars) c.dot.style.left = Math.min(100, (c.prog / (total - 2)) * 100) + '%';
+  }
+
+  function setView() {
+    const r = stage.getBoundingClientRect();
+    const aspect = r.width / r.height;
+    if (aspect >= 1) Object.assign(camera, { left: -view * aspect, right: view * aspect, top: view, bottom: -view });
+    else Object.assign(camera, { left: -view, right: view, top: view / aspect, bottom: -view / aspect });
+    camera.updateProjectionMatrix();
   }
 
   function updateCamera(dt) {
-    const list = cars.filter((c) => !c.dead);
-    const use = list.length ? list : cars;
-    let tx = 0, tz = 0;
-    use.forEach((c) => { tx += c.x; tz += c.z; });
-    tx /= use.length; tz /= use.length;
+    const tx = (cars[0].x + cars[1].x) / 2, tz = (cars[0].z + cars[1].z) / 2;
+    const want = Math.max(17, Math.min(30, Math.hypot(cars[0].x - cars[1].x, cars[0].z - cars[1].z) * 0.6 + 6));
+    view += (want - view) * Math.min(1, dt * 2);
+    setView();
     const k = Math.min(1, dt * 4);
     camTarget.x += (tx - camTarget.x) * k;
     camTarget.z += (tz - 3 - camTarget.z) * k;
@@ -474,10 +467,7 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
   function resize() {
     const r = stage.getBoundingClientRect();
     renderer.setSize(r.width, r.height, false);
-    const aspect = r.width / r.height, view = 17;
-    if (aspect >= 1) Object.assign(camera, { left: -view * aspect, right: view * aspect, top: view, bottom: -view });
-    else Object.assign(camera, { left: -view, right: view, top: view / aspect, bottom: -view / aspect });
-    camera.updateProjectionMatrix();
+    setView();
   }
 
   let last = performance.now();
